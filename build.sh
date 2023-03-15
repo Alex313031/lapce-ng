@@ -60,7 +60,7 @@ printf "\n" &&
 printf "${bold}${GRE} Building Lapce for Linux...${c0}\n" &&
 printf "\n" &&
 
-
+cargo build --release -vv
 }
 case $1 in
 	--build) buildLapce; exit 0;;
