@@ -75,11 +75,12 @@ branch = "shell_opengl"
 # path = "../../druid/druid"
 features = ["svg", "im", "serde"]
 
-
 [profile.release-lto]
 inherits = "release"
 lto = true
+debug = false
 codegen-units = 1
+opt-level = 3
 
 # A profile which compiles all (non-workspace) dependencies in release mode
 # but Lapce code in dev mode. This gives a good debugging experience for your
