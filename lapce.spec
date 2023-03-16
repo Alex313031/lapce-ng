@@ -18,7 +18,7 @@ It is designed with Rope Science from the Xi-Editor which makes for lightning-fa
 {{{ git_dir_setup_macro }}}
 
 %build
-RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold -C opt-level=3 -C target-feature=+avx,+aes" cargo build --profile release-lto
+RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold -C opt-level=3" cargo build --profile release-lto
 
 %install
 install -Dm755 target/release-lto/lapce %{buildroot}%{_bindir}/lapce
