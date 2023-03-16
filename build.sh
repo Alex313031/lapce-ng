@@ -66,7 +66,9 @@ printf "\n" &&
 mkdir -v -p ./bin &&
 cp -r -v ./target/release/lapce ./bin/ &&
 cp -r -v ./target/release/lapce-proxy ./bin/ &&
-cp -r -v ./extra/images/logo_color.svg ./bin/logo.svg &&
+cp -r -v ./extra/images/logo_color.svg ./bin/dev.lapce.lapce.svg &&
+cp -r -v ./extra/linux/dev.lapce.lapce.desktop ./bin/ &&
+cp -r -v ./extra/linux/dev.lapce.lapce.metainfo.xml ./bin/ &&
 
 printf "\n" &&
 printf "${bold}${GRE} Binaries are in ./bin/${c0}\n"
