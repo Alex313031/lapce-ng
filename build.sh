@@ -63,6 +63,11 @@ buildLapceAVX () {
 export CFLAGS="-DNDEBUG -mavx -maes -O3 -g0 -s" &&
 export CXXFLAGS="-DNDEBUG -mavx -maes -O3 -g0 -s" &&
 export CPPFLAGS="-DNDEBUG -mavx -maes -O3 -g0 -s" &&
+export GLIB_CFLAGS="-DNDEBUG -mavx -maes -O3 -g0 -s" &&
+export GLIB_LDFLAGS="-Wl,-O3 -mavx -maes -s" &&
+export GTK_LIBS="-DNDEBUG -mavx -maes -O3 -g0 -s" &&
+export GTK_CFLAGS="-DNDEBUG -mavx -maes -O3 -g0 -s" &&
+export GTK_LDFLAGS="-Wl,-O3 -mavx -maes -s" &&
 export LDFLAGS="-Wl,-O3 -mavx -maes -s" &&
 export LFLAGS="-Wl,-O3 -mavx -maes -s" &&
 export LDLIBS="-Wl,-O3 -mavx -maes -s" &&
@@ -95,6 +100,11 @@ buildLapceSSE3 () {
 export CFLAGS="-DNDEBUG -msse3 -O3 -g0 -s" &&
 export CXXFLAGS="-DNDEBUG -msse3 -O3 -g0 -s" &&
 export CPPFLAGS="-DNDEBUG -msse3 -O3 -g0 -s" &&
+export GLIB_CFLAGS="-DNDEBUG -msse3 -O3 -g0 -s" &&
+export GLIB_LDFLAGS="-Wl,-O3 -msse3 -s" &&
+export GTK_LIBS="-DNDEBUG -msse3 -O3 -g0 -s" &&
+export GTK_CFLAGS="-DNDEBUG -msse3 -O3 -g0 -s" &&
+export GTK_LDFLAGS="-Wl,-O3 -msse3 -s" &&
 export LDFLAGS="-Wl,-O3 -msse3 -s" &&
 export LFLAGS="-Wl,-O3 -msse3 -s" &&
 export LDLIBS="-Wl,-O3 -msse3 -s" &&
