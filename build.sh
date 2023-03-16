@@ -31,7 +31,7 @@ esac
 
 # Install prerequisites
 installDeps () {
-	sudo apt-get install build-essential cmake pkg-config libfontconfig-dev libgtk-3-dev git g++
+	sudo apt-get install build-essential cargo cmake pkg-config libfontconfig-dev libgtk-3-dev git g++
 }
 case $1 in
 	--deps) installDeps; exit 0;;
