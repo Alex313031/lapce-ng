@@ -60,7 +60,16 @@ printf "\n" &&
 printf "${bold}${GRE} Building Lapce for Linux...${c0}\n" &&
 printf "\n" &&
 
-cargo build --release -vv
+cargo build --release -vv &&
+
+printf "\n" &&
+mkdir -v -p ./bin &&
+cp -r -v ./target/release/lapce ./bin/ &&
+cp -r -v ./target/release/lapce-proxy ./bin/ &&
+cp -r -v ./extra/images/logo_color.svg ./bin/logo.svg &&
+
+printf "\n" &&
+printf "${bold}${GRE} Binaries are in ./bin/${c0}\n"
 }
 case $1 in
 	--build) buildLapce; exit 0;;

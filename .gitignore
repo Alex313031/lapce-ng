@@ -6,5 +6,6 @@ shell.nix
 lib/
 target/
 core/languages/
+bin/
 
 .DS_Store
