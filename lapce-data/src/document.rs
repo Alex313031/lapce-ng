@@ -151,6 +151,8 @@ pub enum LocalBufferKind {
     Rename,
     /// Search buffer in plugin panel
     PluginSearch,
+    /// Settings filter in settings panel
+    SettingsFilter,
     /// Source Control branch filter in the branch list
     BranchesFilter,
 }
@@ -192,6 +194,7 @@ impl BufferContent {
                 | LocalBufferKind::BranchesFilter
                 | LocalBufferKind::FilePicker
                 | LocalBufferKind::Settings
+                | LocalBufferKind::SettingsFilter
                 | LocalBufferKind::Keymap
                 | LocalBufferKind::PathName
                 | LocalBufferKind::PluginSearch
@@ -213,6 +216,7 @@ impl BufferContent {
                 | LocalBufferKind::Palette
                 | LocalBufferKind::FilePicker
                 | LocalBufferKind::Settings
+                | LocalBufferKind::SettingsFilter
                 | LocalBufferKind::Keymap
                 | LocalBufferKind::PathName
                 | LocalBufferKind::PluginSearch
@@ -305,8 +309,8 @@ impl PhantomTextLine {
         last
     }
 
-    /// Translate a column position into the text into what it would be after combining
-    /// If before_cursor is false and the cursor is right at the start then it will stay there
+    /// Translate a column position into the text into what it would be after combining.
+    /// If `before_cursor` is false and the cursor is right at the start then it will stay there.
     pub fn col_after(&self, pre_col: usize, before_cursor: bool) -> usize {
         let mut last = pre_col;
         for (col_shift, size, col, _) in self.offset_size_iter() {
@@ -1023,6 +1027,7 @@ impl Document {
                     LocalBufferKind::PluginSearch => {}
                     LocalBufferKind::SourceControl => {}
                     LocalBufferKind::BranchesFilter => {}
+                    LocalBufferKind::SettingsFilter => {}
                     LocalBufferKind::Empty => {}
                     LocalBufferKind::Rename => {}
                     LocalBufferKind::Palette => {
