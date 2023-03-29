@@ -78,6 +78,7 @@ features = ["svg", "im", "serde"]
 [profile.release-lto]
 inherits = "release"
 lto = true
+strip = true
 debug = false
 codegen-units = 1
 opt-level = 3
