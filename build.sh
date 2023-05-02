@@ -90,6 +90,7 @@ cp -r -v ./extra/linux/dev.lapce.lapce.metainfo.xml ./bin/ &&
 
 printf "\n" &&
 printf "${bold}${GRE} Binaries are in ./bin/${c0}\n"
+printf "\n"
 }
 case $1 in
 	--build) buildLapceAVX; exit 0;;
@@ -127,6 +128,7 @@ cp -r -v ./extra/linux/dev.lapce.lapce.metainfo.xml ./bin/ &&
 
 printf "\n" &&
 printf "${bold}${GRE} Binaries are in ./bin/${c0}\n"
+printf "\n"
 }
 case $1 in
 	--sse3) buildLapceSSE3; exit 0;;
