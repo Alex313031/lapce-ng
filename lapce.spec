@@ -19,7 +19,7 @@ It is designed with Rope Science from the Xi-Editor which makes for lightning-fa
 cargo fetch --locked
 
 %build
-cargo build --profile release-lto --package lapce-app --frozen
+RUSTFLAGS="-C linker=clang -C opt-level=3" cargo build --profile release-lto --package lapce-app --frozen
 
 %install
 install -Dm755 target/release-lto/lapce %{buildroot}%{_bindir}/lapce

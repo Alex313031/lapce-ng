@@ -118,6 +118,9 @@ features = ["Win32_Foundation"]
 [profile.release-lto]
 inherits      = "release"
 lto           = true
+strip = true
+debug = false
+opt-level = 3
 codegen-units = 1
 
 # A profile which compiles all (non-workspace) dependencies in release mode
