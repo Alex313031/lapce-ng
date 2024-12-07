@@ -32,7 +32,7 @@ Lapce (IPA: /læps/) is written in pure Rust with a UI in [Floem](https://github
 
 * Built-in LSP ([Language Server Protocol](https://microsoft.github.io/language-server-protocol/)) support to give you intelligent code features such as: completion, diagnostics and code actions
 * Modal editing support as first class citizen (Vim-like, and toggleable)
-* Built-in remote development support inspired by [VSCode Remote Development](https://code.visualstudio.com/docs/remote/remote-overview). Enjoy the benefits of a "local" experience, and seamlessly gain the full power of a remote system. We also have [lapdev](https://github.com/lapce/lapdev) which can help manage your remote dev environments. 
+* Built-in remote development support inspired by [VSCode Remote Development](https://code.visualstudio.com/docs/remote/remote-overview). Enjoy the benefits of a "local" experience, and seamlessly gain the full power of a remote system. We also have [Lapdev](https://lap.dev/) which can help manage your remote dev environments. 
 * Plugins can be written in programming languages that can compile to the [WASI](https://wasi.dev/) format (C, Rust, [AssemblyScript](https://www.assemblyscript.org/))
 * Built-in terminal, so you can execute commands in your workspace, without leaving Lapce.
 
@@ -42,6 +42,12 @@ You can find pre-built releases for Windows, Linux and macOS [here](https://gith
 If you'd like to compile from source, you can find the [guide](docs/building-from-source.md).
 
 ## Contributing
+
+<a href="https://ws.lap.dev/#https://github.com/lapce/lapce" target="_blank">
+      <img src="https://lap.dev/images/open-in-lapdev.svg?version=8" alt="Open in Lapdev">
+</a>
+
+[Lapdev](https://lap.dev/), developed by the Lapce team, is a cloud dev env service similar to GitHub Codespaces. By clicking the button above, you'll be taken to a fully set up Lapce dev env where you can browse the code and start developing. All dependencies are pre-installed, so you can get straight to code.
 
 Guidelines for contributing to Lapce can be found in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 

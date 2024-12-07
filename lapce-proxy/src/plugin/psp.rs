@@ -24,25 +24,25 @@ use lapce_rpc::{
 use lapce_xi_rope::{Rope, RopeDelta};
 use lsp_types::{
     notification::{
-        DidChangeTextDocument, DidOpenTextDocument, DidSaveTextDocument,
+        Cancel, DidChangeTextDocument, DidOpenTextDocument, DidSaveTextDocument,
         Initialized, LogMessage, Notification, Progress, PublishDiagnostics,
         ShowMessage,
     },
     request::{
         CallHierarchyIncomingCalls, CallHierarchyPrepare, CodeActionRequest,
         CodeActionResolveRequest, CodeLensRequest, CodeLensResolve, Completion,
-        DocumentSymbolRequest, Formatting, GotoDefinition, GotoImplementation,
-        GotoTypeDefinition, HoverRequest, Initialize, InlayHintRequest,
-        InlineCompletionRequest, PrepareRenameRequest, References,
+        DocumentSymbolRequest, FoldingRangeRequest, Formatting, GotoDefinition,
+        GotoImplementation, GotoTypeDefinition, HoverRequest, Initialize,
+        InlayHintRequest, InlineCompletionRequest, PrepareRenameRequest, References,
         RegisterCapability, Rename, ResolveCompletionItem, SelectionRangeRequest,
         SemanticTokensFullRequest, SignatureHelpRequest, WorkDoneProgressCreate,
         WorkspaceSymbolRequest,
     },
-    CodeActionProviderCapability, DidChangeTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentSelector, HoverProviderCapability,
-    ImplementationProviderCapability, InitializeResult, LogMessageParams,
-    MessageType, OneOf, ProgressParams, PublishDiagnosticsParams, Range,
-    Registration, RegistrationParams, SemanticTokens, SemanticTokensLegend,
+    CancelParams, CodeActionProviderCapability, DidChangeTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentSelector, FoldingRangeProviderCapability,
+    HoverProviderCapability, ImplementationProviderCapability, InitializeResult,
+    LogMessageParams, MessageType, OneOf, ProgressParams, PublishDiagnosticsParams,
+    Range, Registration, RegistrationParams, SemanticTokens, SemanticTokensLegend,
     SemanticTokensServerCapabilities, ServerCapabilities, ShowMessageParams,
     TextDocumentContentChangeEvent, TextDocumentIdentifier,
     TextDocumentSaveRegistrationOptions, TextDocumentSyncCapability,
@@ -781,6 +781,22 @@ impl PluginHostHandler {
                     }
                 })
                 .unwrap_or(false),
+            FoldingRangeRequest::METHOD => self
+                .server_capabilities
+                .folding_range_provider
+                .as_ref()
+                .map(|r| match r {
+                    FoldingRangeProviderCapability::Simple(support) => *support,
+                    FoldingRangeProviderCapability::FoldingProvider(_) => {
+                        // todo
+                        true
+                    }
+                    FoldingRangeProviderCapability::Options(_) => {
+                        // todo
+                        true
+                    }
+                })
+                .unwrap_or(false),
             CodeActionRequest::METHOD => self
                 .server_capabilities
                 .code_action_provider
@@ -1138,6 +1154,11 @@ impl PluginHostHandler {
                         self.volt_id.author, self.volt_id.name
                     ),
                 );
+            }
+            Cancel::METHOD => {
+                let params: CancelParams =
+                    serde_json::from_value(serde_json::to_value(params)?)?;
+                self.catalog_rpc.core_rpc.cancel(params);
             }
             "experimental/serverStatus" => {
                 let param: ServerStatusParams =

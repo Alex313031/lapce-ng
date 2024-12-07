@@ -24,6 +24,7 @@ use floem::{
     views::editor::core::buffer::rope_text::RopeText,
     ViewId,
 };
+use im::HashMap;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use lapce_core::{
@@ -644,12 +645,47 @@ impl WindowTabData {
         self.common.keypress.update(|keypress| {
             keypress.update_keymaps(&config);
         });
-        if self.common.config.get_untracked().plugins != config.plugins {
+
+        let mut change_plugins = Vec::new();
+        for (key, configs) in self.common.config.get_untracked().plugins.iter() {
+            if config
+                .plugins
+                .get(key)
+                .map(|x| x != configs)
+                .unwrap_or_default()
+            {
+                change_plugins.push(key.clone());
+            }
+        }
+        self.set_config.set(Arc::new(config.clone()));
+        if !change_plugins.is_empty() {
             self.common
                 .proxy
                 .update_plugin_configs(config.plugins.clone());
+            if config.core.auto_reload_plugin {
+                let mut plugin_metas: HashMap<
+                    String,
+                    lapce_rpc::plugin::VoltMetadata,
+                > = self
+                    .plugin
+                    .installed
+                    .get_untracked()
+                    .values()
+                    .into_iter()
+                    .map(|x| {
+                        let meta = x.meta.get_untracked();
+                        (meta.name.clone(), meta)
+                    })
+                    .collect();
+                for name in change_plugins {
+                    if let Some(meta) = plugin_metas.remove(&name) {
+                        self.common.proxy.reload_volt(meta);
+                    } else {
+                        tracing::error!("not found volt metadata of {}", name);
+                    }
+                }
+            }
         }
-        self.set_config.set(Arc::new(config));
     }
 
     pub fn run_lapce_command(&self, cmd: LapceCommand) {
@@ -2023,6 +2059,19 @@ impl WindowTabData {
                 raw.write().term.reset_state();
                 view_id.request_paint();
             }
+            InternalCommand::StopTerminal { term_id } => {
+                self.terminal.stop_run_debug(term_id);
+            }
+            InternalCommand::RestartTerminal { term_id } => {
+                if let Some(is_debug) = self.terminal.restart_run_debug(term_id) {
+                    self.panel.show_panel(&PanelKind::Terminal);
+                    if is_debug {
+                        self.panel.show_panel(&PanelKind::Debug);
+                    }
+                } else {
+                    self.palette.run(PaletteKind::RunAndDebug);
+                }
+            }
             InternalCommand::CallHierarchyIncoming { item_id } => {
                 self.call_hierarchy_incoming(item_id);
             }
@@ -2114,6 +2163,8 @@ impl WindowTabData {
                             doc.get_code_lens();
                             doc.get_document_symbol();
                             doc.get_semantic_styles();
+                            doc.get_folding_range();
+                            doc.get_inlay_hints();
                         }
                     });
                 }

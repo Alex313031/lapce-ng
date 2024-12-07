@@ -56,6 +56,7 @@ use lsp_types::{
 };
 use nucleo::Utf32Str;
 use serde::{Deserialize, Serialize};
+use view::StickyHeaderInfo;
 
 use self::{
     diff::DiffInfo,
@@ -80,7 +81,6 @@ use crate::{
         call_hierarchy_view::CallHierarchyItemData,
         implementation_view::{init_implementation_root, map_to_location},
         kind::PanelKind,
-        references_view::init_references_root,
     },
     snippet::Snippet,
     tracing::*,
@@ -221,6 +221,7 @@ pub struct EditorData {
     pub kind: RwSignal<EditorViewKind>,
     pub sticky_header_height: RwSignal<f64>,
     pub common: Rc<CommonData>,
+    pub sticky_header_info: RwSignal<StickyHeaderInfo>,
 }
 
 impl PartialEq for EditorData {
@@ -259,6 +260,7 @@ impl EditorData {
             kind: cx.create_rw_signal(EditorViewKind::Normal),
             sticky_header_height: cx.create_rw_signal(0.0),
             common,
+            sticky_header_info: cx.create_rw_signal(StickyHeaderInfo::default()),
         }
     }
 
@@ -1443,6 +1445,21 @@ impl EditorData {
             (start_position, position)
         });
         let scope = window_tab_data.scope;
+        let update_implementation = create_ext_action(self.scope, {
+            let window_tab_data = window_tab_data.clone();
+            move |result| {
+                if let Ok(ProxyResponse::ReferencesResolveResponse { items }) =
+                    result
+                {
+                    window_tab_data
+                        .main_split
+                        .references
+                        .update(|x| *x = init_implementation_root(items, scope));
+                    window_tab_data.show_panel(PanelKind::References);
+                }
+            }
+        });
+        let proxy = self.common.proxy.clone();
         self.common.proxy.get_references(
             path,
             position,
@@ -1450,11 +1467,16 @@ impl EditorData {
                 if let Ok(ProxyResponse::GetReferencesResponse { references }) =
                     result
                 {
-                    window_tab_data
-                        .main_split
-                        .references
-                        .update(|x| *x = init_references_root(references, scope));
-                    window_tab_data.show_panel(PanelKind::References);
+                    {
+                        if !references.is_empty() {
+                            proxy.references_resolve(
+                                references,
+                                update_implementation,
+                            );
+                        } else {
+                            window_tab_data.show_panel(PanelKind::References);
+                        }
+                    }
                 }
             }),
         );
@@ -2633,7 +2655,6 @@ impl EditorData {
         self.common.find.replace_focus.set(false);
     }
 
-    #[instrument]
     pub fn pointer_down(&self, pointer_event: &PointerInputEvent) {
         self.cancel_completion();
         self.cancel_inline_completion();
@@ -2654,6 +2675,33 @@ impl EditorData {
             PointerButton::Primary => {
                 self.active().set(true);
                 self.left_click(pointer_event);
+
+                let y =
+                    pointer_event.pos.y - self.editor.viewport.get_untracked().y0;
+                if self.sticky_header_height.get_untracked() > y {
+                    let index = y as usize
+                        / self.common.config.get_untracked().editor.line_height();
+                    if let (Some(path), Some(line)) = (
+                        self.doc().content.get_untracked().path(),
+                        self.sticky_header_info
+                            .get_untracked()
+                            .sticky_lines
+                            .get(index),
+                    ) {
+                        self.common.internal_command.send(
+                            InternalCommand::JumpToLocation {
+                                location: EditorLocation {
+                                    path: path.clone(),
+                                    position: Some(EditorPosition::Line(*line)),
+                                    scroll_offset: None,
+                                    ignore_unconfirmed: true,
+                                    same_editor_tab: false,
+                                },
+                            },
+                        );
+                        return;
+                    }
+                }
 
                 if (cfg!(target_os = "macos") && pointer_event.modifiers.meta())
                     || (cfg!(not(target_os = "macos"))
@@ -2676,7 +2724,7 @@ impl EditorData {
                                 return;
                             };
                             self.common.internal_command.send(
-                                InternalCommand::GoToLocation {
+                                InternalCommand::JumpToLocation {
                                     location: EditorLocation {
                                         path,
                                         position: Some(EditorPosition::Position(
@@ -3512,20 +3560,31 @@ pub(crate) fn compute_screen_lines(
             // TODO: the original was min_line..max_line + 1, are we iterating too little now?
             // the iterator is from min_vline..max_vline
             let count = max_vline.get() - min_vline.get();
-            let iter = lines
-                .iter_rvlines_init(
-                    text_prov,
-                    cache_rev,
-                    config_id,
-                    min_info.rvline,
-                    false,
-                )
-                .take(count);
+            let iter = lines.iter_rvlines_init(
+                text_prov,
+                cache_rev,
+                config_id,
+                min_info.rvline,
+                false,
+            );
 
-            for (i, vline_info) in iter.enumerate() {
+            let range = doc.folding_ranges.get().get_folded_range();
+            let mut init_index = 0;
+
+            for vline_info in iter {
+                if rvlines.len() >= count {
+                    break;
+                }
+
+                let (folded, next_index) =
+                    range.contain_line(init_index, vline_info.rvline.line as u32);
+                init_index = next_index;
+                if folded {
+                    continue;
+                }
                 rvlines.push(vline_info.rvline);
 
-                let y_idx = min_vline.get() + i;
+                let y_idx = min_vline.get() + rvlines.len();
                 let vline_y = y_idx * line_height;
                 let line_y = vline_y - vline_info.rvline.line_index * line_height;
 

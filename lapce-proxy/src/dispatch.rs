@@ -22,7 +22,7 @@ use grep_searcher::{sinks::UTF8, SearcherBuilder};
 use indexmap::IndexMap;
 use lapce_rpc::{
     buffer::BufferId,
-    core::{CoreNotification, CoreRpcHandler},
+    core::{CoreNotification, CoreRpcHandler, FileChanged},
     file::FileNodeItem,
     file_line::FileLine,
     proxy::{
@@ -36,7 +36,9 @@ use lapce_rpc::{
 };
 use lapce_xi_rope::Rope;
 use lsp_types::{
-    MessageType, Position, Range, ShowMessageParams, TextDocumentItem, Url,
+    notification::{Cancel, Notification},
+    CancelParams, MessageType, NumberOrString, Position, Range, ShowMessageParams,
+    TextDocumentItem, Url,
 };
 use parking_lot::Mutex;
 
@@ -115,18 +117,26 @@ impl ProxyHandler for Dispatcher {
                     .notification(CoreNotification::OpenPaths { paths });
             }
             OpenFileChanged { path } => {
-                if let Some(buffer) = self.buffers.get(&path) {
-                    if get_mod_time(&buffer.path) == buffer.mod_time {
-                        return;
-                    }
-                    match load_file(&buffer.path) {
-                        Ok(content) => {
-                            self.core_rpc.open_file_changed(path, content);
+                if path.exists() {
+                    if let Some(buffer) = self.buffers.get(&path) {
+                        if get_mod_time(&buffer.path) == buffer.mod_time {
+                            return;
                         }
-                        Err(err) => {
-                            tracing::event!(tracing::Level::ERROR, "Failed to re-read file after change notification: {err}");
+                        match load_file(&buffer.path) {
+                            Ok(content) => {
+                                self.core_rpc.open_file_changed(
+                                    path,
+                                    FileChanged::Change(content),
+                                );
+                            }
+                            Err(err) => {
+                                tracing::event!(tracing::Level::ERROR, "Failed to re-read file after change notification: {err}");
+                            }
                         }
                     }
+                } else {
+                    self.buffers.remove(&path);
+                    self.core_rpc.open_file_changed(path, FileChanged::Delete);
                 }
             }
             Completion {
@@ -372,6 +382,18 @@ impl ProxyHandler for Dispatcher {
                         Err(e) => eprintln!("{e:?}"),
                     }
                 }
+            }
+            LspCancel { id } => {
+                self.catalog_rpc.send_notification(
+                    None,
+                    Cancel::METHOD,
+                    CancelParams {
+                        id: NumberOrString::Number(id),
+                    },
+                    None,
+                    None,
+                    false,
+                );
             }
         }
     }
@@ -1108,6 +1130,21 @@ impl ProxyHandler for Dispatcher {
                         proxy_rpc.handle_response(id, result);
                     });
             }
+            LspFoldingRange { path } => {
+                let proxy_rpc = self.proxy_rpc.clone();
+                self.catalog_rpc.get_lsp_folding_range(
+                    &path,
+                    move |plugin_id, result| {
+                        let result = result.map(|resp| {
+                            ProxyResponse::LspFoldingRangeResponse {
+                                plugin_id,
+                                resp,
+                            }
+                        });
+                        proxy_rpc.handle_response(id, result);
+                    },
+                );
+            }
             GetCodeLensResolve { code_lens, path } => {
                 let proxy_rpc = self.proxy_rpc.clone();
                 self.catalog_rpc.get_code_lens_resolve(
@@ -1252,8 +1289,19 @@ impl FileWatchNotifier {
     }
 
     fn handle_open_file_fs_event(&self, event: notify::Event) {
-        if event.kind.is_modify() {
+        const PREFIX: &str = r"\\?\";
+        if event.kind.is_modify() || event.kind.is_remove() {
             for path in event.paths {
+                #[cfg(windows)]
+                if let Some(path_str) = path.to_str() {
+                    if path_str.starts_with(PREFIX) {
+                        let path = PathBuf::from(&path_str[PREFIX.len()..]);
+                        self.proxy_rpc.notification(
+                            ProxyNotification::OpenFileChanged { path },
+                        );
+                        continue;
+                    }
+                }
                 self.proxy_rpc
                     .notification(ProxyNotification::OpenFileChanged { path });
             }

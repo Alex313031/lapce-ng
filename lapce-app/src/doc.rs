@@ -67,15 +67,20 @@ use lapce_xi_rope::{
 };
 use lsp_types::{
     CodeActionOrCommand, CodeLens, Diagnostic, DiagnosticSeverity,
-    DocumentSymbolResponse, InlayHint, InlayHintLabel,
+    DocumentSymbolResponse, InlayHint, InlayHintLabel, TextEdit,
 };
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
-    command::{CommandKind, LapceCommand},
+    command::{CommandKind, InternalCommand, LapceCommand},
     config::{color::LapceColor, LapceConfig},
-    editor::{compute_screen_lines, EditorData},
+    editor::{
+        compute_screen_lines,
+        gutter::FoldingRanges,
+        location::{EditorLocation, EditorPosition},
+        EditorData,
+    },
     find::{Find, FindProgress, FindResult},
     history::DocumentHistory,
     keypress::KeyPressFocus,
@@ -191,6 +196,8 @@ pub struct Doc {
 
     pub code_lens: RwSignal<AllCodeLens>,
 
+    pub folding_ranges: RwSignal<FoldingRanges>,
+
     /// Stores information about different versions of the document from source control.
     histories: RwSignal<im::HashMap<String, DocumentHistory>>,
     pub head_changes: RwSignal<im::Vector<DiffLines>>,
@@ -257,6 +264,7 @@ impl Doc {
             common,
             code_lens: cx.create_rw_signal(im::HashMap::new()),
             document_symbol_data: cx.create_rw_signal(None),
+            folding_ranges: cx.create_rw_signal(FoldingRanges::default()),
         }
     }
 
@@ -307,6 +315,7 @@ impl Doc {
             common,
             code_lens: cx.create_rw_signal(im::HashMap::new()),
             document_symbol_data: cx.create_rw_signal(None),
+            folding_ranges: cx.create_rw_signal(FoldingRanges::default()),
         }
     }
 
@@ -357,6 +366,7 @@ impl Doc {
             common,
             code_lens: cx.create_rw_signal(im::HashMap::new()),
             document_symbol_data: cx.create_rw_signal(None),
+            folding_ranges: cx.create_rw_signal(FoldingRanges::default()),
         }
     }
 
@@ -651,6 +661,7 @@ impl Doc {
             self.clear_style_cache();
             self.get_code_lens();
             self.get_document_symbol();
+            self.get_folding_range();
         });
     }
 
@@ -674,14 +685,36 @@ impl Doc {
         }
     }
 
+    pub fn do_text_edit(&self, edits: &[TextEdit]) {
+        let edits = self.buffer.with_untracked(|buffer| {
+            let edits = edits
+                .iter()
+                .map(|edit| {
+                    let selection = lapce_core::selection::Selection::region(
+                        buffer.offset_of_position(&edit.range.start),
+                        buffer.offset_of_position(&edit.range.end),
+                    );
+                    (selection, edit.new_text.as_str())
+                })
+                .collect::<Vec<_>>();
+            edits
+        });
+        self.do_raw_edit(&edits, EditType::Completion);
+    }
+
     fn check_auto_save(&self) {
         let config = self.common.config.get_untracked();
         if config.editor.autosave_interval > 0 {
-            if !self.content.with_untracked(|c| c.is_file()) {
+            let Some(path) =
+                self.content.with_untracked(|c| c.path().map(|x| x.clone()))
+            else {
                 return;
             };
             let rev = self.rev();
             let doc = self.clone();
+            let scope = self.scope;
+            let proxy = self.common.proxy.clone();
+            let format = config.editor.format_on_save;
             exec_after(
                 Duration::from_millis(config.editor.autosave_interval),
                 move |_| {
@@ -697,7 +730,26 @@ impl Doc {
                         return;
                     }
 
-                    doc.save(|| {});
+                    if format {
+                        let send = create_ext_action(scope, move |result| {
+                            let current_rev = doc.rev();
+                            if current_rev != rev {
+                                return;
+                            }
+                            if let Ok(ProxyResponse::GetDocumentFormatting {
+                                edits,
+                            }) = result
+                            {
+                                doc.do_text_edit(&edits);
+                            }
+                            doc.save(|| {});
+                        });
+                        proxy.get_document_formatting(path, move |result| {
+                            send(result);
+                        });
+                    } else {
+                        doc.save(|| {});
+                    }
                 },
             );
         }
@@ -944,7 +996,7 @@ impl Doc {
                                     })
                                     .collect(),
                             };
-                        let symbol_new = Some(SymbolData { items, path });
+                        let symbol_new = Some(SymbolData::new(items, path, cx));
                         doc.document_symbol_data.update(|symbol| {
                             *symbol = symbol_new;
                         });
@@ -959,7 +1011,7 @@ impl Doc {
     }
 
     /// Request inlay hints for the buffer from the LSP through the proxy.
-    fn get_inlay_hints(&self) {
+    pub fn get_inlay_hints(&self) {
         if !self.loaded() {
             return;
         }
@@ -1041,6 +1093,43 @@ impl Doc {
 
         self.clear_text_cache();
         self.clear_code_actions();
+    }
+
+    pub fn get_folding_range(&self) {
+        // let cx = self.scope;
+        // let doc = self.clone();
+        // let rev = self.rev();
+        // if let DocContent::File { path, .. } = doc.content.get_untracked() {
+        //     let send = create_ext_action(cx, {
+        //         move |result| {
+        //             if rev != doc.rev() {
+        //                 return;
+        //             }
+        //             if let Ok(ProxyResponse::LspFoldingRangeResponse {
+        //                 resp, ..
+        //             }) = result
+        //             {
+        //                 let folding = resp
+        //                     .unwrap_or_default()
+        //                     .into_iter()
+        //                     .map(|x| {
+        //                         crate::editor::gutter::FoldingRange::from_lsp(x)
+        //                     })
+        //                     .sorted_by(|x, y| x.start.line.cmp(&y.start.line))
+        //                     .collect();
+        //                 doc.folding_ranges.update(|symbol| {
+        //                     symbol.0 = folding;
+        //                 });
+        //             }
+        //         }
+        //     });
+
+        //     self.common
+        //         .proxy
+        //         .get_lsp_folding_range(path, move |result| {
+        //             send(result);
+        //         });
+        // }
     }
 
     /// Get the current completion lens text
@@ -1183,7 +1272,34 @@ impl Doc {
             .set(FindProgress::InProgress(Selection::new()));
 
         let find_result = self.find_result.clone();
-        let send = create_ext_action(self.scope, move |occurrences| {
+        let find_rev_signal = self.common.find.rev.clone();
+        let triggered_by_changes = self.common.find.triggered_by_changes.clone();
+
+        let path = self.content.get_untracked().path().map(|x| x.clone());
+        let common = self.common.clone();
+        let send = create_ext_action(self.scope, move |occurrences: Selection| {
+            match (
+                occurrences.regions().is_empty(),
+                &path,
+                find_rev_signal.get_untracked() == find_rev,
+                triggered_by_changes.get_untracked(),
+            ) {
+                (false, Some(path), true, true) => {
+                    triggered_by_changes.set(false);
+                    common.internal_command.send(InternalCommand::GoToLocation {
+                        location: EditorLocation {
+                            path: path.clone(),
+                            position: Some(EditorPosition::Offset(
+                                occurrences.regions()[0].start,
+                            )),
+                            scroll_offset: None,
+                            ignore_unconfirmed: false,
+                            same_editor_tab: false,
+                        },
+                    });
+                }
+                _ => {}
+            }
             find_result.occurrences.set(occurrences);
             find_result.progress.set(FindProgress::Ready);
         });
@@ -1671,15 +1787,18 @@ impl DocumentPhantom for Doc {
                                         config.color(theme_prop)
                                     };
 
-                                    let text = if config.editor.error_lens_multiline
-                                    {
-                                        format!("    {}", diag.message)
-                                    } else {
-                                        format!(
-                                            "    {}",
-                                            diag.message.lines().join(" ")
-                                        )
-                                    };
+                                    let text =
+                                        if config.editor.only_render_error_styling {
+                                            "".to_string()
+                                        } else if config.editor.error_lens_multiline
+                                        {
+                                            format!("    {}", diag.message)
+                                        } else {
+                                            format!(
+                                                "    {}",
+                                                diag.message.lines().join(" ")
+                                            )
+                                        };
                                     Some(PhantomText {
                                         kind: PhantomTextKind::Diagnostic,
                                         col: end_offset - start_offset,

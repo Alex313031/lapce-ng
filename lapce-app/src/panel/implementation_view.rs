@@ -10,6 +10,7 @@ use floem::{
     IntoView, View, ViewId,
 };
 use im::HashMap;
+use itertools::Itertools;
 use lapce_rpc::file_line::FileLine;
 use lsp_types::{request::GotoImplementationResponse, Location, SymbolKind};
 
@@ -25,14 +26,23 @@ pub fn implementation_panel(
     window_tab_data: Rc<WindowTabData>,
     _position: PanelPosition,
 ) -> impl View {
-    let main_split = window_tab_data.main_split.clone();
+    common_reference_panel(window_tab_data.clone(), _position, move || {
+        window_tab_data.main_split.implementations.get()
+    })
+    .debug_name("implementation panel")
+}
+pub fn common_reference_panel(
+    window_tab_data: Rc<WindowTabData>,
+    _position: PanelPosition,
+    each_fn: impl Fn() -> ReferencesRoot + 'static,
+) -> impl View {
     let config = window_tab_data.common.config;
     let ui_line_height = window_tab_data.common.ui_line_height;
     scroll(
         virtual_stack(
             VirtualDirection::Vertical,
             VirtualItemSize::Fixed(Box::new(move || ui_line_height.get())),
-            move || main_split.implementations.get(),
+            each_fn,
             move |(_, _, data)| data.view_id(),
             move |(_, level, rw_data)| {
                 match rw_data {
@@ -133,7 +143,7 @@ pub fn implementation_panel(
                         let position = file_line.position;
                         move |_| {
                             window_tab_data.common.internal_command.send(
-                                InternalCommand::GoToLocation {
+                                InternalCommand::JumpToLocation {
                                     location: EditorLocation {
                                         path: file_line.path.clone(),
                                         position: Some(
@@ -169,7 +179,6 @@ pub fn implementation_panel(
         .style(|s| s.flex_col().absolute().min_width_full()),
     )
     .style(|s| s.absolute().size_full())
-    .debug_name("references panel")
 }
 
 pub fn map_to_location(resp: Option<GotoImplementationResponse>) -> Vec<Location> {
@@ -195,32 +204,39 @@ pub fn init_implementation_root(
     items: Vec<FileLine>,
     scope: Scope,
 ) -> ReferencesRoot {
-    let mut refs_map = HashMap::new();
+    let mut refs_map: HashMap<PathBuf, HashMap<u32, Reference>> = HashMap::new();
     for item in items {
-        let entry = refs_map.entry(item.path.clone()).or_insert(Vec::new());
-        (*entry).push(Reference::Line {
-            location: ReferenceLocation::Line {
-                file_line: item,
-                view_id: ViewId::new(),
+        let entry = refs_map.entry(item.path.clone()).or_default();
+        (*entry).insert(
+            item.position.line,
+            Reference::Line {
+                location: ReferenceLocation::Line {
+                    file_line: item,
+                    view_id: ViewId::new(),
+                },
             },
-        })
+        );
     }
 
     let mut refs = Vec::new();
     for (path, items) in refs_map {
         let open = scope.create_rw_signal(true);
+        let children = items
+            .into_iter()
+            .sorted_by(|x, y| x.0.cmp(&y.0))
+            .map(|x| x.1)
+            .collect();
         let ref_item = Reference::File {
             location: ReferenceLocation::File {
                 open,
                 path,
                 view_id: ViewId::new(),
             },
-            children: items,
+            children,
             open,
         };
         refs.push(ref_item);
     }
-    tracing::debug!("children {}", refs.len());
     ReferencesRoot { children: refs }
 }
 

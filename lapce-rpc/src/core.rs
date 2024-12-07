@@ -9,8 +9,8 @@ use std::{
 
 use crossbeam_channel::{Receiver, Sender};
 use lsp_types::{
-    CompletionResponse, LogMessageParams, ProgressParams, PublishDiagnosticsParams,
-    ShowMessageParams, SignatureHelp,
+    CancelParams, CompletionResponse, LogMessageParams, ProgressParams,
+    PublishDiagnosticsParams, ShowMessageParams, SignatureHelp,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -35,6 +35,13 @@ pub enum CoreRpc {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum FileChanged {
+    Change(String),
+    Delete,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 #[serde(tag = "method", content = "params")]
 pub enum CoreNotification {
     ProxyStatus {
@@ -42,7 +49,7 @@ pub enum CoreNotification {
     },
     OpenFileChanged {
         path: PathBuf,
-        content: String,
+        content: FileChanged,
     },
     CompletionResponse {
         request_id: usize,
@@ -75,6 +82,9 @@ pub enum CoreNotification {
     LogMessage {
         message: LogMessageParams,
         target: String,
+    },
+    LspCancel {
+        params: CancelParams,
     },
     HomeDir {
         path: PathBuf,
@@ -248,7 +258,7 @@ impl CoreRpcHandler {
         self.notification(CoreNotification::DiffInfo { diff });
     }
 
-    pub fn open_file_changed(&self, path: PathBuf, content: String) {
+    pub fn open_file_changed(&self, path: PathBuf, content: FileChanged) {
         self.notification(CoreNotification::OpenFileChanged { path, content });
     }
 
@@ -329,6 +339,10 @@ impl CoreRpcHandler {
 
     pub fn log_message(&self, message: LogMessageParams, target: String) {
         self.notification(CoreNotification::LogMessage { message, target });
+    }
+
+    pub fn cancel(&self, params: CancelParams) {
+        self.notification(CoreNotification::LspCancel { params });
     }
 
     pub fn terminal_process_id(&self, term_id: TermId, process_id: Option<u32>) {

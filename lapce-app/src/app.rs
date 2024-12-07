@@ -37,6 +37,7 @@ use floem::{
     unit::PxPctAuto,
     views::{
         clip, container, drag_resize_window_area, drag_window_area, dyn_stack,
+        editor::{core::register::Clipboard, text::SystemClipboard},
         empty, label, rich_text,
         scroll::{scroll, PropagatePointerWheel, VerticalScrollAsHorizontal},
         stack, svg, tab, text, tooltip, virtual_stack, Decorators, VirtualDirection,
@@ -2828,6 +2829,20 @@ fn window_message_view(
                 )
                 .style(|s| s.margin_left(6.0)),
             ))
+            .on_double_click_stop(move |_| {
+                messages.update(|messages| {
+                    messages.remove(i);
+                });
+            })
+            .on_secondary_click_stop({
+                let message = message.message.clone();
+                move |_| {
+                    let mut clipboard = SystemClipboard::new();
+                    if !message.is_empty() {
+                        clipboard.put_string(&message);
+                    }
+                }
+            })
             .on_event_stop(EventListener::PointerDown, |_| {})
             .style(move |s| {
                 let config = config.get();
@@ -3689,7 +3704,7 @@ pub fn launch() {
         args.push("--wait".to_string());
         let mut cmd = std::process::Command::new(&args[0]);
         #[cfg(target_os = "windows")]
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        cmd.creation_flags(windows::Win32::System::Threading::CREATE_NO_WINDOW);
 
         let stderr_file_path =
             Directory::logs_directory().unwrap().join("stderr.log");
@@ -3986,6 +4001,9 @@ pub fn load_shell_env() {
         "-Command",
         "Get-ChildItem env: | ForEach-Object { \"{0}={1}\" -f $_.Name, $_.Value }",
     ]);
+
+    #[cfg(windows)]
+    command.creation_flags(windows::Win32::System::Threading::CREATE_NO_WINDOW);
 
     let env = match command.output() {
         Ok(output) => String::from_utf8(output.stdout).unwrap_or_default(),
