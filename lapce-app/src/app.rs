@@ -6,12 +6,15 @@ use std::{
     path::PathBuf,
     process::Stdio,
     rc::Rc,
-    sync::{atomic::AtomicU64, Arc},
+    sync::{
+        atomic::AtomicU64,
+        mpsc::{channel, sync_channel, SyncSender},
+        Arc,
+    },
 };
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
-use crossbeam_channel::Sender;
 use floem::{
     action::show_context_menu,
     event::{Event, EventListener, EventPropagation},
@@ -21,6 +24,7 @@ use floem::{
         kurbo::{Point, Rect, Size},
         Color,
     },
+    prelude::SignalTrack,
     reactive::{
         create_effect, create_memo, create_rw_signal, provide_context, use_context,
         ReadSignal, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith,
@@ -40,8 +44,7 @@ use floem::{
         editor::{core::register::Clipboard, text::SystemClipboard},
         empty, label, rich_text,
         scroll::{scroll, PropagatePointerWheel, VerticalScrollAsHorizontal},
-        stack, svg, tab, text, tooltip, virtual_stack, Decorators, VirtualDirection,
-        VirtualItemSize, VirtualVector,
+        stack, svg, tab, text, tooltip, virtual_stack, Decorators, VirtualVector,
     },
     window::{ResizeDirection, WindowConfig, WindowId},
     IntoView, View,
@@ -245,6 +248,7 @@ impl AppData {
                             workspaces: vec![workspace],
                         },
                     },
+                    vec![],
                 )
             },
             Some(config),
@@ -299,10 +303,15 @@ impl AppData {
     ) -> floem::Application {
         let mut app = floem::Application::new();
 
+        let mut inital_windows = 0;
+
         // Split user input into known existing directors and
         // file paths that exist or not
         let (dirs, files): (Vec<&PathObject>, Vec<&PathObject>) =
             paths.iter().partition(|p| p.is_dir);
+
+        let files: Vec<PathObject> = files.into_iter().cloned().collect();
+        let mut files = if files.is_empty() { None } else { Some(files) };
 
         if !dirs.is_empty() {
             // There were directories specified, so we'll load those as windows
@@ -357,12 +366,14 @@ impl AppData {
                     config
                 };
                 let app_data = self.clone();
+                let files = files.take().unwrap_or_default();
                 app = app.window(
-                    move |window_id| app_data.app_view(window_id, info),
+                    move |window_id| app_data.app_view(window_id, info, files),
                     Some(config),
                 );
+                inital_windows += 1;
             }
-        } else if files.is_empty() {
+        } else if files.is_none() {
             // There were no dirs and no files specified, so we'll load the last windows
             match db.get_app() {
                 Ok(app_info) => {
@@ -380,9 +391,12 @@ impl AppData {
                         };
                         let app_data = self.clone();
                         app = app.window(
-                            move |window_id| app_data.app_view(window_id, info),
+                            move |window_id| {
+                                app_data.app_view(window_id, info, vec![])
+                            },
                             Some(config),
                         );
+                        inital_windows += 1;
                     }
                 }
                 Err(err) => {
@@ -391,7 +405,7 @@ impl AppData {
             }
         }
 
-        if self.windows.with_untracked(|windows| windows.is_empty()) {
+        if inital_windows == 0 {
             let mut info = db.get_window().unwrap_or_else(|_| WindowInfo {
                 size: Size::new(800.0, 600.0),
                 pos: Point::ZERO,
@@ -418,21 +432,41 @@ impl AppData {
             };
             let app_data = self.clone();
             app = app.window(
-                move |window_id| app_data.app_view(window_id, info),
+                move |window_id| {
+                    app_data.app_view(
+                        window_id,
+                        info,
+                        files.take().unwrap_or_default(),
+                    )
+                },
                 Some(config),
             );
         }
 
-        // Open any listed files in the first window
-        if let Some(window) = self.windows.with_untracked(|windows| {
-            windows
-                .iter()
-                .next()
-                .map(|(_, window_data)| window_data.clone())
-        }) {
-            let cur_window_tab = window.active.get_untracked();
+        app
+    }
+
+    fn app_view(
+        &self,
+        window_id: WindowId,
+        info: WindowInfo,
+        files: Vec<PathObject>,
+    ) -> impl View {
+        let app_view_id = create_rw_signal(floem::ViewId::new());
+        let window_data = WindowData::new(
+            window_id,
+            app_view_id,
+            info,
+            self.window_scale,
+            self.latest_release.read_only(),
+            self.plugin_paths.clone(),
+            self.app_command,
+        );
+
+        {
+            let cur_window_tab = window_data.active.get_untracked();
             let (_, window_tab) =
-                &window.window_tabs.get_untracked()[cur_window_tab];
+                &window_data.window_tabs.get_untracked()[cur_window_tab];
             for file in files {
                 let position = file.linecol.map(|pos| {
                     EditorPosition::Position(lsp_types::Position {
@@ -455,20 +489,6 @@ impl AppData {
             }
         }
 
-        app
-    }
-
-    fn app_view(&self, window_id: WindowId, info: WindowInfo) -> impl View {
-        let app_view_id = create_rw_signal(floem::ViewId::new());
-        let window_data = WindowData::new(
-            window_id,
-            app_view_id,
-            info,
-            self.window_scale,
-            self.latest_release.read_only(),
-            self.plugin_paths.clone(),
-            self.app_command,
-        );
         self.windows.update(|windows| {
             windows.insert(window_id, window_data.clone());
         });
@@ -479,97 +499,117 @@ impl AppData {
         let config = window_data.config;
         // The KeyDown and PointerDown event handlers both need ownership of a WindowData object.
         let key_down_window_data = window_data.clone();
-        let view =
+        let view = stack((
+            workspace_tab_header(window_data.clone()),
+            window(window_data.clone()),
             stack((
-                workspace_tab_header(window_data.clone()),
-                window(window_data.clone()),
-                stack((
-                    drag_resize_window_area(ResizeDirection::West, empty())
-                        .style(|s| s.absolute().width(4.0).height_full()),
-                    drag_resize_window_area(ResizeDirection::North, empty())
-                        .style(|s| s.absolute().width_full().height(4.0)),
-                    drag_resize_window_area(ResizeDirection::East, empty()).style(
-                        move |s| {
-                            s.absolute()
-                                .margin_left(window_size.get().width as f32 - 4.0)
-                                .width(4.0)
-                                .height_full()
-                        },
-                    ),
-                    drag_resize_window_area(ResizeDirection::South, empty()).style(
-                        move |s| {
-                            s.absolute()
-                                .margin_top(window_size.get().height as f32 - 4.0)
-                                .width_full()
-                                .height(4.0)
-                        },
-                    ),
-                    drag_resize_window_area(ResizeDirection::NorthWest, empty())
-                        .style(|s| s.absolute().width(20.0).height(4.0)),
-                    drag_resize_window_area(ResizeDirection::NorthWest, empty())
-                        .style(|s| s.absolute().width(4.0).height(20.0)),
-                    drag_resize_window_area(ResizeDirection::NorthEast, empty())
-                        .style(move |s| {
-                            s.absolute()
-                                .margin_left(window_size.get().width as f32 - 20.0)
-                                .width(20.0)
-                                .height(4.0)
-                        }),
-                    drag_resize_window_area(ResizeDirection::NorthEast, empty())
-                        .style(move |s| {
-                            s.absolute()
-                                .margin_left(window_size.get().width as f32 - 4.0)
-                                .width(4.0)
-                                .height(20.0)
-                        }),
-                    drag_resize_window_area(ResizeDirection::SouthWest, empty())
-                        .style(move |s| {
-                            s.absolute()
-                                .margin_top(window_size.get().height as f32 - 4.0)
-                                .width(20.0)
-                                .height(4.0)
-                        }),
-                    drag_resize_window_area(ResizeDirection::SouthWest, empty())
-                        .style(move |s| {
-                            s.absolute()
-                                .margin_top(window_size.get().height as f32 - 20.0)
-                                .width(4.0)
-                                .height(20.0)
-                        }),
-                    drag_resize_window_area(ResizeDirection::SouthEast, empty())
-                        .style(move |s| {
-                            s.absolute()
-                                .margin_left(window_size.get().width as f32 - 20.0)
-                                .margin_top(window_size.get().height as f32 - 4.0)
-                                .width(20.0)
-                                .height(4.0)
-                        }),
-                    drag_resize_window_area(ResizeDirection::SouthEast, empty())
-                        .style(move |s| {
-                            s.absolute()
-                                .margin_left(window_size.get().width as f32 - 4.0)
-                                .margin_top(window_size.get().height as f32 - 20.0)
-                                .width(4.0)
-                                .height(20.0)
-                        }),
-                ))
-                .debug_name("Drag Resize Areas")
-                .style(move |s| {
-                    s.absolute().size_full().apply_if(
+                drag_resize_window_area(ResizeDirection::West, empty()).style(|s| {
+                    s.absolute().width(4.0).height_full().pointer_events_auto()
+                }),
+                drag_resize_window_area(ResizeDirection::North, empty()).style(
+                    |s| s.absolute().width_full().height(4.0).pointer_events_auto(),
+                ),
+                drag_resize_window_area(ResizeDirection::East, empty()).style(
+                    move |s| {
+                        s.absolute()
+                            .margin_left(window_size.get().width as f32 - 4.0)
+                            .width(4.0)
+                            .height_full()
+                            .pointer_events_auto()
+                    },
+                ),
+                drag_resize_window_area(ResizeDirection::South, empty()).style(
+                    move |s| {
+                        s.absolute()
+                            .margin_top(window_size.get().height as f32 - 4.0)
+                            .width_full()
+                            .height(4.0)
+                            .pointer_events_auto()
+                    },
+                ),
+                drag_resize_window_area(ResizeDirection::NorthWest, empty()).style(
+                    |s| s.absolute().width(20.0).height(4.0).pointer_events_auto(),
+                ),
+                drag_resize_window_area(ResizeDirection::NorthWest, empty()).style(
+                    |s| s.absolute().width(4.0).height(20.0).pointer_events_auto(),
+                ),
+                drag_resize_window_area(ResizeDirection::NorthEast, empty()).style(
+                    move |s| {
+                        s.absolute()
+                            .margin_left(window_size.get().width as f32 - 20.0)
+                            .width(20.0)
+                            .height(4.0)
+                            .pointer_events_auto()
+                    },
+                ),
+                drag_resize_window_area(ResizeDirection::NorthEast, empty()).style(
+                    move |s| {
+                        s.absolute()
+                            .margin_left(window_size.get().width as f32 - 4.0)
+                            .width(4.0)
+                            .height(20.0)
+                            .pointer_events_auto()
+                    },
+                ),
+                drag_resize_window_area(ResizeDirection::SouthWest, empty()).style(
+                    move |s| {
+                        s.absolute()
+                            .margin_top(window_size.get().height as f32 - 4.0)
+                            .width(20.0)
+                            .height(4.0)
+                            .pointer_events_auto()
+                    },
+                ),
+                drag_resize_window_area(ResizeDirection::SouthWest, empty()).style(
+                    move |s| {
+                        s.absolute()
+                            .margin_top(window_size.get().height as f32 - 20.0)
+                            .width(4.0)
+                            .height(20.0)
+                            .pointer_events_auto()
+                    },
+                ),
+                drag_resize_window_area(ResizeDirection::SouthEast, empty()).style(
+                    move |s| {
+                        s.absolute()
+                            .margin_left(window_size.get().width as f32 - 20.0)
+                            .margin_top(window_size.get().height as f32 - 4.0)
+                            .width(20.0)
+                            .height(4.0)
+                            .pointer_events_auto()
+                    },
+                ),
+                drag_resize_window_area(ResizeDirection::SouthEast, empty()).style(
+                    move |s| {
+                        s.absolute()
+                            .margin_left(window_size.get().width as f32 - 4.0)
+                            .margin_top(window_size.get().height as f32 - 20.0)
+                            .width(4.0)
+                            .height(20.0)
+                            .pointer_events_auto()
+                    },
+                ),
+            ))
+            .debug_name("Drag Resize Areas")
+            .style(move |s| {
+                s.absolute()
+                    .size_full()
+                    .apply_if(
                         cfg!(target_os = "macos")
                             || !config.get_untracked().core.custom_titlebar,
                         |s| s.hide(),
                     )
-                }),
-            ))
-            .style(|s| s.flex_col().size_full());
+                    .pointer_events_none()
+            }),
+        ))
+        .style(|s| s.flex_col().size_full());
         let view_id = view.id();
         app_view_id.set(view_id);
 
         view_id.request_focus();
 
         view.window_scale(move || window_scale.get())
-            .keyboard_navigatable()
+            .keyboard_navigable()
             .on_event(EventListener::KeyDown, move |event| {
                 if let Event::KeyDown(key_event) = event {
                     if key_down_window_data.key_down(key_event) {
@@ -693,17 +733,22 @@ fn editor_tab_header(
             use crate::config::ui::TabCloseButton;
 
             let tab_icon = container({
-                svg(move || info.with(|info| info.icon.clone())).style(move |s| {
-                    let config = config.get();
-                    let size = config.ui.icon_size() as f32;
-                    s.size(size, size)
-                        .apply_opt(info.with(|info| info.color), |s, c| s.color(c))
-                        .apply_if(
-                            !info.with(|info| info.is_pristine)
-                                && config.ui.tab_close_button == TabCloseButton::Off,
-                            |s| s.color(config.color(LapceColor::LAPCE_WARN)),
-                        )
-                })
+                svg("")
+                    .update_value(move || info.with(|info| info.icon.clone()))
+                    .style(move |s| {
+                        let config = config.get();
+                        let size = config.ui.icon_size() as f32;
+                        s.size(size, size)
+                            .apply_opt(info.with(|info| info.color), |s, c| {
+                                s.color(c)
+                            })
+                            .apply_if(
+                                !info.with(|info| info.is_pristine)
+                                    && config.ui.tab_close_button
+                                        == TabCloseButton::Off,
+                                |s| s.color(config.color(LapceColor::LAPCE_WARN)),
+                            )
+                    })
             })
             .style(|s| s.padding(4.));
 
@@ -918,7 +963,7 @@ fn editor_tab_header(
                         .background(
                             config
                                 .color(LapceColor::PANEL_BACKGROUND)
-                                .with_alpha_factor(0.7),
+                                .multiply_alpha(0.7),
                         )
                         .border_color(config.color(LapceColor::LAPCE_BORDER))
                 })
@@ -937,7 +982,12 @@ fn editor_tab_header(
                             LapceColor::LAPCE_TAB_INACTIVE_UNDERLINE
                         }))
                 })
-                .style(|s| s.absolute().padding_horiz(3.0).size_full())
+                .style(|s| {
+                    s.absolute()
+                        .padding_horiz(3.0)
+                        .size_full()
+                        .pointer_events_none()
+                })
                 .debug_name("Drop Indicator"),
             empty()
                 .style(move |s| {
@@ -966,7 +1016,7 @@ fn editor_tab_header(
                             config
                                 .get()
                                 .color(LapceColor::LAPCE_TAB_ACTIVE_UNDERLINE)
-                                .with_alpha_factor(0.5),
+                                .multiply_alpha(0.5),
                         )
                 })
                 .debug_name("Active Tab Indicator"),
@@ -1544,7 +1594,13 @@ fn editor_tab(
                 .on_resize(move |rect| {
                     tab_size.set(rect.size());
                 })
-                .style(|s| s.absolute().size_full()),
+                .style(move |s| {
+                    s.absolute()
+                        .size_full()
+                        .apply_if(dragging.get().is_none(), |s| {
+                            s.pointer_events_none()
+                        })
+                }),
         ))
         .debug_name("Editor Content and Drag Over")
         .style(|s| s.size_full()),
@@ -1747,10 +1803,15 @@ fn split_resize_border(
                         })
                         .background(config.get().color(LapceColor::EDITOR_CARET))
                     })
+                    .pointer_events_auto()
             })
         },
     )
-    .style(|s| s.position(Position::Absolute).size_full())
+    .style(|s| {
+        s.position(Position::Absolute)
+            .size_full()
+            .pointer_events_none()
+    })
     .debug_name("Split Resize Border")
 }
 
@@ -1822,7 +1883,11 @@ fn split_border(
             })
         },
     )
-    .style(|s| s.position(Position::Absolute).size_full())
+    .style(|s| {
+        s.position(Position::Absolute)
+            .size_full()
+            .pointer_events_none()
+    })
     .debug_name("Split Border")
 }
 
@@ -2612,8 +2677,6 @@ fn palette_content(
         scroll({
             let workspace = workspace.clone();
             virtual_stack(
-                VirtualDirection::Vertical,
-                VirtualItemSize::Fixed(Box::new(move || palette_item_height)),
                 move || PaletteItems(items.get()),
                 move |(i, _item)| {
                     (run_id.get_untracked(), *i, input.get_untracked().input)
@@ -2658,6 +2721,7 @@ fn palette_content(
                     })
                 },
             )
+            .item_size_fixed(move || palette_item_height)
             .style(|s| s.width_full().flex_col())
         })
         .ensure_visible(move || {
@@ -2760,6 +2824,7 @@ fn palette(window_tab_data: Rc<WindowTabData>) -> impl View {
                 .border_color(config.color(LapceColor::LAPCE_BORDER))
                 .flex_col()
                 .background(config.color(LapceColor::PALETTE_BACKGROUND))
+                .pointer_events_auto()
         }),
     )
     .style(move |s| {
@@ -2772,6 +2837,7 @@ fn palette(window_tab_data: Rc<WindowTabData>) -> impl View {
         .size_full()
         .flex_col()
         .items_center()
+        .pointer_events_none()
     })
     .debug_name("Pallete Layer")
 }
@@ -2873,6 +2939,7 @@ fn window_message_view(
                 )
                 .style(|s| {
                     s.absolute()
+                        .pointer_events_auto()
                         .width_full()
                         .min_height(0.0)
                         .max_height_full()
@@ -2888,7 +2955,7 @@ fn window_message_view(
                 .height_full()
         }),
     )
-    .style(|s| s.absolute().size_full().justify_end())
+    .style(|s| s.absolute().size_full().justify_end().pointer_events_none())
     .debug_name("Window Message View")
 }
 
@@ -2994,10 +3061,6 @@ fn completion(window_tab_data: Rc<WindowTabData>) -> impl View {
         move || completion_data.with_untracked(|c| (c.request_id, c.input_id));
     scroll(
         virtual_stack(
-            VirtualDirection::Vertical,
-            VirtualItemSize::Fixed(Box::new(move || {
-                config.get().editor.line_height() as f64
-            })),
             move || completion_data.with(|c| VectorItems(c.filtered_items.clone())),
             move |(i, _item)| (request_id(), *i),
             move |(i, item)| {
@@ -3021,9 +3084,7 @@ fn completion(window_tab_data: Rc<WindowTabData>) -> impl View {
                             .font_weight(Weight::BOLD)
                             .apply_opt(
                                 config.completion_color(item.item.kind),
-                                |s, c| {
-                                    s.color(c).background(c.with_alpha_factor(0.3))
-                                },
+                                |s, c| s.color(c).background(c.multiply_alpha(0.3)),
                             )
                     }),
                     focus_text(
@@ -3074,6 +3135,7 @@ fn completion(window_tab_data: Rc<WindowTabData>) -> impl View {
                 })
             },
         )
+        .item_size_fixed(move || config.get().editor.line_height() as f64)
         .style(|s| {
             s.align_items(Some(AlignItems::Center))
                 .width_full()
@@ -3450,10 +3512,11 @@ fn workspace_tab_header(window_data: WindowData) -> impl View {
                                     .color(LapceColor::LAPCE_TAB_ACTIVE_UNDERLINE),
                             )
                     }))
-                    .style(|s| {
+                    .style(move |s| {
                         s.position(Position::Absolute)
                             .padding_horiz(3.0)
                             .size_full()
+                            .pointer_events_none()
                     }),
                 ))
                 .style(move |s| s.size_full().items_center())
@@ -3473,12 +3536,12 @@ fn workspace_tab_header(window_data: WindowData) -> impl View {
                     .color(
                         config
                             .color(LapceColor::EDITOR_FOREGROUND)
-                            .with_alpha_factor(0.7),
+                            .multiply_alpha(0.7),
                     )
                     .background(
                         config
                             .color(LapceColor::PANEL_BACKGROUND)
-                            .with_alpha_factor(0.7),
+                            .multiply_alpha(0.7),
                     )
             })
             .on_click_stop(move |_| {
@@ -3782,7 +3845,7 @@ pub fn launch() {
 
     let plugin_paths = Arc::new(cli.plugin_path);
 
-    let (tx, rx) = crossbeam_channel::bounded(1);
+    let (tx, rx) = channel();
     let mut watcher = notify::recommended_watcher(ConfigWatcher::new(tx)).unwrap();
     if let Some(path) = LapceConfig::settings_file() {
         if let Err(err) = watcher.watch(&path, notify::RecursiveMode::Recursive) {
@@ -3814,7 +3877,7 @@ pub fn launch() {
     let config = scope.create_rw_signal(Arc::new(config));
     let app_data = AppData {
         windows,
-        active_window: scope.create_rw_signal(WindowId::from(0)),
+        active_window: scope.create_rw_signal(WindowId::from_raw(0)),
         window_scale,
         app_terminated: scope.create_rw_signal(false),
         watcher: Arc::new(watcher),
@@ -3902,7 +3965,7 @@ pub fn launch() {
 
     #[cfg(feature = "updater")]
     {
-        let (tx, rx) = crossbeam_channel::bounded(1);
+        let (tx, rx) = sync_channel(1);
         let notification = create_signal_from_channel(rx);
         let latest_release = app_data.latest_release;
         create_effect(move |_| {
@@ -3924,13 +3987,15 @@ pub fn launch() {
     }
 
     {
-        let (tx, rx) = crossbeam_channel::bounded(1);
+        let (tx, rx) = sync_channel(1);
         let notification = create_signal_from_channel(rx);
         let app_data = app_data.clone();
         create_effect(move |_| {
             if let Some(CoreNotification::OpenPaths { paths }) = notification.get() {
                 if let Some(window_tab) = app_data.active_window_tab() {
                     window_tab.open_paths(&paths);
+                    // focus window after open doc
+                    floem::action::focus_window();
                 }
             }
         });
@@ -3997,7 +4062,7 @@ pub fn load_shell_env() {
     command.args(["--login", "-c", "printenv"]);
 
     #[cfg(windows)]
-    command.args(&[
+    command.args([
         "-Command",
         "Get-ChildItem env: | ForEach-Object { \"{0}={1}\" -f $_.Name, $_.Value }",
     ]);
@@ -4066,7 +4131,7 @@ pub fn try_open_in_existing_process(
     Ok(())
 }
 
-fn listen_local_socket(tx: Sender<CoreNotification>) -> Result<()> {
+fn listen_local_socket(tx: SyncSender<CoreNotification>) -> Result<()> {
     let local_socket = Directory::local_socket()
         .ok_or_else(|| anyhow!("can't get local socket folder"))?;
     if local_socket.exists() {

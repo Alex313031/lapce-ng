@@ -38,7 +38,7 @@ clap              = { version = "4.5.0", default-features = false, features = ["
 crossbeam-channel = { version = "0.5.12" }
 directories       = { version = "4.0.1" }
 flate2            = { version = "1.0" }
-git2              = { version = "0.19.0", features = ["vendored-openssl"] }
+git2              = { version = "0.20.0", features = ["vendored-openssl"] }
 globset           = { version = "0.4.14" }
 hashbrown         = { version = "0.14.5", features = ["serde"] }
 im                = { version = "15.0.0", features = ["serde"] }
@@ -76,9 +76,9 @@ lapce-core  = { path = "./lapce-core" }
 lapce-rpc   = { path = "./lapce-rpc" }
 lapce-proxy = { path = "./lapce-proxy" }
 
-floem = { git = "https://github.com/lapce/floem", rev = "157631a49d6ba13a3467dcb994eb46a98c52eb76", features = ["editor", "serde", "default-image-formats", "rfd-async-std"] }
+floem = { git = "https://github.com/lapce/floem", rev = "e1dada5c0f94447b13bbad6d4b645c4668b37fc5", features = ["editor", "serde", "default-image-formats", "rfd-async-std"] }
 # floem = { path = "../floem", features = ["editor", "serde", "default-image-formats", "rfd-async-std"] }
-floem-editor-core = { git = "https://github.com/lapce/floem", rev = "157631a49d6ba13a3467dcb994eb46a98c52eb76", features = ["serde"] }
+floem-editor-core = { git = "https://github.com/lapce/floem", rev = "e1dada5c0f94447b13bbad6d4b645c4668b37fc5", features = ["serde"] }
 # floem-editor-core = { path = "../floem/editor-core/", features = ["serde"] }
 
 [patch.crates-io]

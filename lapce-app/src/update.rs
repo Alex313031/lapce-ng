@@ -154,7 +154,7 @@ pub fn extract(src: &Path, _process_path: &Path) -> Result<PathBuf> {
 #[cfg(target_os = "macos")]
 pub fn restart(path: &Path) -> Result<()> {
     use std::os::unix::process::CommandExt;
-    std::process::Command::new("open")
+    let _ = std::process::Command::new("open")
         .arg("-n")
         .arg(path)
         .arg("--args")
@@ -166,7 +166,7 @@ pub fn restart(path: &Path) -> Result<()> {
 #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "openbsd"))]
 pub fn restart(path: &Path) -> Result<()> {
     use std::os::unix::process::CommandExt;
-    std::process::Command::new(path).arg("-n").exec();
+    let _ = std::process::Command::new(path).arg("-n").exec();
     Ok(())
 }
 
@@ -188,7 +188,6 @@ pub fn restart(path: &Path) -> Result<()> {
 }
 
 #[cfg(all(target_os = "windows", not(feature = "portable")))]
-
 pub fn restart(path: &Path) -> Result<()> {
     use std::os::windows::process::CommandExt;
     const DETACHED_PROCESS: u32 = 0x00000008;

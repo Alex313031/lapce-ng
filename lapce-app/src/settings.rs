@@ -14,8 +14,7 @@ use floem::{
     views::{
         container, dyn_stack, empty, label,
         scroll::{scroll, PropagatePointerWheel},
-        stack, svg, text, virtual_stack, Decorators, VirtualDirection,
-        VirtualItemSize, VirtualVector,
+        stack, svg, text, virtual_stack, Decorators, VirtualVector,
     },
     IntoView, View,
 };
@@ -337,8 +336,8 @@ pub fn settings_view(
     let search_editor = editors.make_local(cx, common);
     let doc = search_editor.doc_signal();
 
-    let items = settings_data.items.clone();
-    let kinds = settings_data.kinds.clone();
+    let items = settings_data.items;
+    let kinds = settings_data.kinds;
     let filtered_items_signal = settings_data.filtered_items;
     create_effect(move |_| {
         let doc = doc.get();
@@ -370,7 +369,6 @@ pub fn settings_view(
     let scroll_pos = create_rw_signal(Point::ZERO);
 
     let current_kind = {
-        let kinds = kinds.clone();
         create_memo(move |_| {
             let scroll_pos = scroll_pos.get();
             let scroll_y = scroll_pos.y + 30.0;
@@ -490,7 +488,7 @@ pub fn settings_view(
                 TextInputBuilder::new()
                     .build_editor(search_editor)
                     .placeholder(|| "Search Settings".to_string())
-                    .keyboard_navigatable()
+                    .keyboard_navigable()
                     .style(move |s| {
                         s.width_pct(100.0)
                             .border_radius(6.0)
@@ -640,7 +638,7 @@ fn settings_item_view(
                 });
 
                 text_input_view
-                    .keyboard_navigatable()
+                    .keyboard_navigable()
                     .style(move |s| {
                         s.width(300.0).border(1.0).border_radius(6.0).border_color(
                             config.get().color(LapceColor::LAPCE_BORDER),
@@ -832,8 +830,6 @@ fn color_section_list(
                 .line_height(2.0)
         }),
         virtual_stack(
-            VirtualDirection::Vertical,
-            VirtualItemSize::Fixed(Box::new(move || text_height.get() + 24.0)),
             move || BTreeMapVirtualList(list()),
             move |(key, _)| (key.to_owned()),
             move |(key, value)| {
@@ -944,7 +940,7 @@ fn color_section_list(
                     text(&key).style(move |s| {
                         s.width(max_width.get()).margin_left(20).margin_right(10)
                     }),
-                    text_input_view.keyboard_navigatable().style(move |s| {
+                    text_input_view.keyboard_navigable().style(move |s| {
                         s.width(150.0)
                             .margin_vert(6)
                             .border(1)
@@ -1026,6 +1022,7 @@ fn color_section_list(
                 .style(|s| s.items_center())
             },
         )
+        .item_size_fixed(move || text_height.get() + 24.0)
         .style(|s| s.flex_col().padding_right(20)),
     ))
     .style(|s| s.flex_col())
@@ -1088,7 +1085,7 @@ pub fn theme_color_settings_view(
                 TextInputBuilder::new()
                     .build_editor(search_editor)
                     .placeholder(|| "Search Settings".to_string())
-                    .keyboard_navigatable()
+                    .keyboard_navigable()
                     .style(move |s| {
                         s.width_pct(100.0)
                             .border_radius(6.0)
@@ -1270,7 +1267,7 @@ fn dropdown_view(
             .width(250.0)
             .line_height(1.8)
     })
-    .keyboard_navigatable()
+    .keyboard_navigable()
     .on_event_stop(EventListener::FocusGained, move |_| {
         dropdown_input_focus.set(true);
     })
@@ -1341,7 +1338,7 @@ fn dropdown_scroll(
             .max_height(200.0)
             .set(PropagatePointerWheel, false)
     })
-    .keyboard_navigatable()
+    .keyboard_navigable()
     .request_focus(|| {})
     .on_event_stop(EventListener::FocusGained, move |_| {
         dropdown_scroll_focus.set(true);
