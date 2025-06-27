@@ -6,22 +6,24 @@ use std::{
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
-        atomic::{self, AtomicUsize},
         Arc,
+        atomic::{self, AtomicUsize},
     },
     time::Duration,
 };
 
 use floem::{
+    ViewId,
     action::exec_after,
     ext_event::create_ext_action,
     keyboard::Modifiers,
     peniko::Color,
     reactive::{
-        batch, ReadSignal, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith,
+        ReadSignal, RwSignal, Scope, SignalGet, SignalUpdate, SignalWith, batch,
     },
     text::{Attrs, AttrsList, FamilyOwned, TextLayout},
     views::editor::{
+        CursorInfo, Editor, EditorStyle,
         actions::CommonAction,
         command::{Command, CommandExecuted},
         id::EditorId,
@@ -29,16 +31,14 @@ use floem::{
         phantom_text::{PhantomText, PhantomTextKind, PhantomTextLine},
         text::{Document, DocumentPhantom, PreeditData, Styling, SystemClipboard},
         view::{ScreenLines, ScreenLinesBase},
-        CursorInfo, Editor, EditorStyle,
     },
-    ViewId,
 };
 use itertools::Itertools;
 use lapce_core::{
     buffer::{
-        diff::{rope_diff, DiffLines},
-        rope_text::RopeText,
         Buffer, InvalLines,
+        diff::{DiffLines, rope_diff},
+        rope_text::RopeText,
     },
     char_buffer::CharBuffer,
     command::EditCommand,
@@ -52,8 +52,8 @@ use lapce_core::{
     rope_text_pos::RopeTextPosition,
     selection::{InsertDrift, Selection},
     style::line_styles,
-    syntax::{edit::SyntaxEdit, BracketParser, Syntax},
-    word::{get_char_property, CharClassification, WordCursor},
+    syntax::{BracketParser, Syntax, edit::SyntaxEdit},
+    word::{CharClassification, WordCursor, get_char_property},
 };
 use lapce_rpc::{
     buffer::BufferId,
@@ -62,8 +62,8 @@ use lapce_rpc::{
     style::{LineStyle, LineStyles, Style},
 };
 use lapce_xi_rope::{
-    spans::{Spans, SpansBuilder},
     Interval, Rope, RopeDelta, Transformer,
+    spans::{Spans, SpansBuilder},
 };
 use lsp_types::{
     CodeActionOrCommand, CodeLens, Diagnostic, DiagnosticSeverity,
@@ -74,8 +74,8 @@ use smallvec::SmallVec;
 
 use crate::{
     command::{CommandKind, LapceCommand},
-    config::{color::LapceColor, LapceConfig},
-    editor::{compute_screen_lines, gutter::FoldingRanges, EditorData},
+    config::{LapceConfig, color::LapceColor},
+    editor::{EditorData, compute_screen_lines, gutter::FoldingRanges},
     find::{Find, FindProgress, FindResult},
     history::DocumentHistory,
     keypress::KeyPressFocus,
@@ -682,7 +682,7 @@ impl Doc {
 
     pub fn do_text_edit(&self, edits: &[TextEdit]) {
         let edits = self.buffer.with_untracked(|buffer| {
-            let edits = edits
+            edits
                 .iter()
                 .map(|edit| {
                     let selection = lapce_core::selection::Selection::region(
@@ -691,8 +691,7 @@ impl Doc {
                     );
                     (selection, edit.new_text.as_str())
                 })
-                .collect::<Vec<_>>();
-            edits
+                .collect::<Vec<_>>()
         });
         self.do_raw_edit(&edits, EditType::Completion);
     }
@@ -1303,11 +1302,7 @@ impl Doc {
                         .iter()
                         .filter_map(|offset| {
                             let l = buffer.line_of_offset(*offset);
-                            if l <= line {
-                                Some(l)
-                            } else {
-                                None
-                            }
+                            if l <= line { Some(l) } else { None }
                         })
                         .dedup()
                         .sorted()
@@ -1925,7 +1920,8 @@ impl DocStyling {
                     if let Some(fg_color) = config.style_color(fg_color) {
                         let start = phantom_text.col_at(bracket_style.start);
                         let end = phantom_text.col_at(bracket_style.end);
-                        attrs_list.add_span(start..end, attrs.color(fg_color));
+                        attrs_list
+                            .add_span(start..end, attrs.clone().color(fg_color));
                     }
                 }
             }
@@ -2011,7 +2007,7 @@ impl Styling for DocStyling {
                 if let Some(fg_color) = config.style_color(fg_color) {
                     let start = phantom_text.col_at(line_style.start);
                     let end = phantom_text.col_at(line_style.end);
-                    attrs_list.add_span(start..end, default.color(fg_color));
+                    attrs_list.add_span(start..end, default.clone().color(fg_color));
                 }
             }
         }

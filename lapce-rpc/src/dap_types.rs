@@ -8,7 +8,7 @@
 
 use std::{collections::HashMap, path::PathBuf};
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
 use crate::counter::Counter;
@@ -133,6 +133,7 @@ pub enum DapEvent {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
+#[allow(clippy::large_enum_variant)]
 pub enum DapPayload {
     Request(DapRequest),
     Response(DapResponse),

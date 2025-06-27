@@ -24,14 +24,14 @@ use lapce_rpc::{
     plugin::{PluginId, VoltID},
     proxy::ProxyResponse,
 };
-use lapce_xi_rope::{spans::SpansBuilder, Rope};
+use lapce_xi_rope::{Rope, spans::SpansBuilder};
 use lsp_types::{
     CodeAction, CodeActionOrCommand, DiagnosticSeverity, DocumentChangeOperation,
     DocumentChanges, OneOf, Position, TextEdit, Url, WorkspaceEdit,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{event, Level};
+use tracing::{Level, event};
 
 use crate::{
     alert::AlertButton,
@@ -39,9 +39,9 @@ use crate::{
     command::InternalCommand,
     doc::{DiagnosticData, Doc, DocContent, DocHistory, EditorDiagnostic},
     editor::{
+        EditorData,
         diff::DiffEditorData,
         location::{EditorLocation, EditorPosition},
-        EditorData,
     },
     editor_tab::{
         EditorTabChild, EditorTabChildSource, EditorTabData, EditorTabInfo,
@@ -207,15 +207,14 @@ impl SplitContentInfo {
 
 impl SplitData {
     pub fn split_info(&self, data: &WindowTabData) -> SplitInfo {
-        let info = SplitInfo {
+        SplitInfo {
             direction: self.direction,
             children: self
                 .children
                 .iter()
                 .map(|(_, child)| child.content_info(data))
                 .collect(),
-        };
-        info
+        }
     }
 
     pub fn editor_tab_index(&self, editor_tab_id: EditorTabId) -> Option<usize> {
@@ -2028,7 +2027,7 @@ impl MainSplitData {
                             let doc = doc.clone();
                             internal_command.send(InternalCommand::HideAlert);
                             save_as(
-                                FileDialogOptions::new(),
+                                FileDialogOptions::new().title("Save File"),
                                 move |file: Option<FileInfo>| {
                                     let main_split = main_split.clone();
                                     let child = child.clone();
@@ -2094,8 +2093,8 @@ impl MainSplitData {
                         .internal_command
                         .send(InternalCommand::ShowAlert {
                             title: format!(
-                            "Do you want to save the changes you made to {name}?"
-                        ),
+                                "Do you want to save the changes you made to {name}?"
+                            ),
                             msg: "Your changes will be lost if you don't save them."
                                 .to_string(),
                             buttons: vec![
@@ -2590,38 +2589,44 @@ impl MainSplitData {
 
     pub fn save_scratch_doc(&self, doc: Rc<Doc>) {
         let main_split = self.clone();
-        save_as(FileDialogOptions::new(), move |file: Option<FileInfo>| {
-            if let Some(mut file) = file {
-                main_split.save_as(
-                    doc.clone(),
-                    if let Some(path) = file.path.pop() {
-                        path
-                    } else {
-                        tracing::error!("No path");
-                        return;
-                    },
-                    move || {},
-                );
-            }
-        });
+        save_as(
+            FileDialogOptions::new().title("Save File"),
+            move |file: Option<FileInfo>| {
+                if let Some(mut file) = file {
+                    main_split.save_as(
+                        doc.clone(),
+                        if let Some(path) = file.path.pop() {
+                            path
+                        } else {
+                            tracing::error!("No path");
+                            return;
+                        },
+                        move || {},
+                    );
+                }
+            },
+        );
     }
 
     pub fn save_scratch_doc2(&self, doc: Rc<Doc>) {
         let main_split = self.clone();
-        save_as(FileDialogOptions::new(), move |file: Option<FileInfo>| {
-            if let Some(mut file) = file {
-                main_split.save_as2(
-                    doc.clone(),
-                    if let Some(path) = file.path.pop() {
-                        path
-                    } else {
-                        tracing::error!("No path");
-                        return;
-                    },
-                    move || {},
-                );
-            }
-        });
+        save_as(
+            FileDialogOptions::new().title("Save File"),
+            move |file: Option<FileInfo>| {
+                if let Some(mut file) = file {
+                    main_split.save_as2(
+                        doc.clone(),
+                        if let Some(path) = file.path.pop() {
+                            path
+                        } else {
+                            tracing::error!("No path");
+                            return;
+                        },
+                        move || {},
+                    );
+                }
+            },
+        );
     }
 
     pub fn move_editor_tab_child(

@@ -1,16 +1,16 @@
 use floem::{
+    Renderer, View, ViewId,
     context::PaintCx,
     peniko::kurbo::{Point, Rect, Size},
     reactive::{Memo, SignalGet, SignalWith},
     text::{Attrs, AttrsList, FamilyOwned, TextLayout},
-    Renderer, View, ViewId,
 };
 use im::HashMap;
 use lapce_core::{buffer::rope_text::RopeText, mode::Mode};
 use serde::{Deserialize, Serialize};
 
-use super::{view::changes_colors_screen, EditorData};
-use crate::config::{color::LapceColor, LapceConfig};
+use super::{EditorData, view::changes_colors_screen};
+use crate::config::{LapceConfig, color::LapceColor};
 
 pub struct EditorGutterView {
     id: ViewId,
@@ -147,9 +147,12 @@ impl View for EditorGutterView {
             .family(&family)
             .color(config.color(LapceColor::EDITOR_DIM))
             .font_size(config.editor.font_size() as f32);
-        let attrs_list = AttrsList::new(attrs);
-        let current_line_attrs_list =
-            AttrsList::new(attrs.color(config.color(LapceColor::EDITOR_FOREGROUND)));
+        let attrs_list = AttrsList::new(attrs.clone());
+        let current_line_attrs_list = AttrsList::new(
+            attrs
+                .clone()
+                .color(config.color(LapceColor::EDITOR_FOREGROUND)),
+        );
         let show_relative = config.core.modal
             && config.editor.modal_mode_relative_line_numbers
             && mode != Mode::Insert

@@ -4,22 +4,22 @@ use alacritty_terminal::{
     grid::Dimensions,
     index::Side,
     selection::{Selection, SelectionType},
-    term::{cell::Flags, test::TermSize, RenderableContent},
+    term::{RenderableContent, cell::Flags, test::TermSize},
 };
 use floem::{
+    Renderer, View, ViewId,
     context::{EventCx, PaintCx},
     event::{Event, EventPropagation},
     kurbo::Stroke,
     peniko::{
-        kurbo::{Point, Rect, Size},
         Color,
+        kurbo::{Point, Rect, Size},
     },
     pointer::PointerInputEvent,
     prelude::SignalTrack,
-    reactive::{create_effect, ReadSignal, RwSignal, SignalGet, SignalWith},
+    reactive::{ReadSignal, RwSignal, SignalGet, SignalWith, create_effect},
     text::{Attrs, AttrsList, FamilyOwned, TextLayout, Weight},
     views::editor::{core::register::Clipboard, text::SystemClipboard},
-    Renderer, View, ViewId,
 };
 use lapce_core::mode::Mode;
 use lapce_rpc::{proxy::ProxyRpcHandler, terminal::TermId};
@@ -31,7 +31,7 @@ use unicode_width::UnicodeWidthChar;
 use super::{panel::TerminalPanelData, raw::RawTerminal};
 use crate::{
     command::InternalCommand,
-    config::{color::LapceColor, LapceConfig},
+    config::{LapceConfig, color::LapceColor},
     debug::RunDebugProcess,
     editor::location::{EditorLocation, EditorPosition},
     listener::Listener,
@@ -413,7 +413,7 @@ impl TerminalView {
             }
 
             if cell.c != ' ' && cell.c != '\t' {
-                let mut attrs = attrs.color(fg);
+                let mut attrs = attrs.clone().color(fg);
                 if bold {
                     attrs = attrs.weight(Weight::BOLD);
                 }
@@ -475,7 +475,7 @@ impl TerminalView {
 
         for (char, attr, x, y) in &line_content.chars {
             let mut text_layout = TextLayout::new();
-            text_layout.set_text(&char.to_string(), AttrsList::new(*attr));
+            text_layout.set_text(&char.to_string(), AttrsList::new(attr.clone()));
             cx.draw_text(&text_layout, Point::new(*x, *y));
         }
     }
