@@ -128,20 +128,21 @@ jobs:
           cp ./target/linux_arm64/lapce Lapce/
           tar -zcvf ./lapce-linux-arm64.tar.gz Lapce
 
-      # - name: Fetch dependencies
-      #   run: cargo fetch --locked
+      - name: Fetch dependencies
+        run: cargo fetch --locked
 
-      # - name: Vendor dependencies
-      #   run: |
-      #     cargo vendor --frozen > ./vendor-config.toml
-      #     mv ./vendor-config.toml ./vendor/
-      #     tar -zcf vendor.tar.gz ./vendor/
+      - name: Vendor dependencies
+        run: |
+          cargo vendor --frozen > ./vendor-config.toml
+          mv ./vendor-config.toml ./vendor/
+          tar -zcf vendor.tar.gz ./vendor/
 
       - uses: actions/upload-artifact@v4
         with:
           name: lapce-linux
           path: |
             ./lapce-linux-*.tar.gz
+            ./vendor.tar.gz
           retention-days: 1
 
   deb:
@@ -158,13 +159,11 @@ jobs:
           - os-name: debian
             os-version: bullseye
           - os-name: ubuntu
-            os-version: focal
-          - os-name: ubuntu
             os-version: jammy
           - os-name: ubuntu
             os-version: noble
           - os-name: ubuntu
-            os-version: oracular
+            os-version: plucky
     steps:
       - uses: actions/checkout@v4
 
@@ -190,11 +189,9 @@ jobs:
       matrix:
         include:
           - os-name: fedora
-            os-version: 39
+            os-version: 41
           - os-name: fedora
-            os-version: 40
-          # - os-name: fedora
-          #   os-version: 41
+            os-version: 42
           # - os-name: fedora
           #   os-version: rawhide
     steps:
@@ -222,7 +219,7 @@ jobs:
       matrix:
         include:
           - os-name: alpine
-            os-version: '3-20'
+            os-version: "" # uses latest
     steps:
       - uses: actions/checkout@v4
 
@@ -294,6 +291,7 @@ jobs:
           appstore-connect-password: ${{ secrets.NOTARIZE_PASSWORD }}
           appstore-connect-team-id: CYSGAZFR8D
           primary-bundle-id: "io.lapce"
+          verbose: true
 
       - name: "Staple Release Build"
         uses: lapce/xcode-staple@062485d6eeafe841c18a412f012e80f49e23c517
